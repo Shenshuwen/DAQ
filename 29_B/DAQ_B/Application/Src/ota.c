@@ -122,9 +122,8 @@ OTA_ErrorFlag OTA_EraseApp(void){
 
 /**
  * @brief  写入 APP 固件数据
- * @note   调用前必须已通过 OTA_EraseApp() 擦除 APP 区。
- *         DATA 阶段不自行擦除，由 OTA_Start 保证前置擦除。
- *         掉电恢复时 OTA_Start 的重新调用会完整擦除 APP 区后重传。
+ * @note   APP 区由 OTA_Start 预先擦除，本函数只做半字编程。
+ *         掉电恢复时重新调用 OTA_Start 会完整擦除 APP 区。
  */
 OTA_ErrorFlag OTA_WriteAppData(uint32_t offset, const uint8_t *buf, uint32_t len){
     OTA_ErrorFlag err;

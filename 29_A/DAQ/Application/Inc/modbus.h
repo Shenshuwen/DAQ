@@ -19,7 +19,7 @@
 
 /* ---------- 寄存器操作功能码 ---------- */
 #define MODBUS_READ_INPUT_REGISTERS   0x04 /* 读输入寄存器 */
-/* ---------- OTA 升级功能码 (与29_B Bootloader一致) ---------- */
+/* ---------- OTA 升级功能码 ---------- */
 #define OTA_UPDATA             0x41 /* OTA升级请求 */
 
 

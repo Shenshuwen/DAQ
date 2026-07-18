@@ -21,29 +21,14 @@ extern IWDG_HandleTypeDef hiwdg;
 #define COMM_STACK_SIZE      configMINIMAL_STACK_SIZE *2
 #define MONITOR_STACK_SIZE   configMINIMAL_STACK_SIZE *2
 
-/* UART1传感器调试打印：串口助手接PA9/PA10，115200 8N1 */
-#define SENSOR_UART1_PRINT_ENABLE      1
-#define SENSOR_UART1_PRINT_PERIOD_S    1
-
 /* ----------------------------------------------------------------*/
 
 void Sensor_Task(void *pvParameters){
     (void)pvParameters;
-    /* 调度器已启动，在任务上下文中安全启用采样定时器 */
     TIM_Enable(&tim2_drv);
     for (;;){
         ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
         Modbus_Updata();
-        #if SENSOR_UART1_PRINT_ENABLE
-        static uint32_t sensor_print_count = 0;
-        if(++sensor_print_count >= SENSOR_UART1_PRINT_PERIOD_S){
-            sensor_print_count = 0;
-            const uint16_t *buf = (const uint16_t *)Modbus_GetInputData();
-            UART1_Printf("[Sensor] CH0:%u CH1:%u CH2:%u CH3:%u CH4:%u CH5:%u CH6:%u CH7:%u\r\n",
-                (unsigned)buf[0], (unsigned)buf[1], (unsigned)buf[2], (unsigned)buf[3],
-                (unsigned)buf[4], (unsigned)buf[5], (unsigned)buf[6], (unsigned)buf[7]);
-        }
-        #endif
         sys_sensor_heartbeat++;
     }
 }

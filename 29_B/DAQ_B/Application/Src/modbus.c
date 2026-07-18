@@ -77,15 +77,13 @@ static void Modbus_ExceptionResponse(uint8_t func,uint8_t code){
 
 /**
  * @brief  Modbus 通用发送 — 裸机版本
- * @note   Bootloader 无 RTOS，使用轮询等待 tx_busy 清除。
- *         超时后强制复位 tx_busy 恢复后续发送能力。
+ * @note   超时后强制复位 tx_busy，避免 DMA 异常导致后续发送永久阻塞。
  */
 static uint8_t Modbus_Send(UART_DataDrvType *drv, uint8_t *data, uint16_t len){
-    /*  轮询等待上一次 DMA 发送完成 (tx_busy 由 DMA TC ISR 清除) */
-    uint32_t timeout = 100000;  /* 粗略超时, 防止死循环 */
+    uint32_t timeout = 100000;
     while (drv->tx_busy && --timeout);
     if (timeout == 0) {
-        drv->tx_busy = 0; /* 超时强制恢复，避免永久阻塞后续发送 */
+        drv->tx_busy = 0;
         #if DEBUG
         UART1_Printf("Modbus_Send: Timeout waiting for tx_busy\n");
         #endif
@@ -206,7 +204,7 @@ static void Modbus_OTA_Abort(const uint8_t *rxbuf, uint16_t len){
         Modbus_OTA_Response(OTA_CMD_ABORT, OTA_ERR_SIZE);
         return;
     }
-    (void)rxbuf; /* 帧校验已通过，无需再解析 */
+    (void)rxbuf;
     err = OTA_Abort();
     Modbus_OTA_Response(OTA_CMD_ABORT, err);
 }

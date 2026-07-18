@@ -1,36 +1,29 @@
-# Keil MDK build artifacts
-*.uvguix.*
-*.scvd
+# Archives
+*.rar
+*.zip
+
+# Keil build artifacts
+*.o
 *.crf
 *.d
-*.o
 *.axf
 *.lst
 *.lnp
 *.dep
-*.iex
 *.htm
-*.sct.bak
-JLinkLog.txt
-JLinkSettings.ini
+*.iex
+*.build_log.*
+*.uvguix.*
 *.uvoptx
+*.scvd
 RTE/
-
-# Debug / Output
 DebugConfig/
-*.tra
-*.Administrator
+EventRecorderStub.scvd
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
-.venv/
-venv/
-
-# Archives
-*.rar
-*.zip
 
 # OS
 Thumbs.db

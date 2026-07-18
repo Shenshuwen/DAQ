@@ -76,7 +76,6 @@ static uint8_t Modbus_Send(UART_DataDrvType *drv, uint8_t *data, uint16_t len){
         return 0;
     }
     if(!UART_Data_TX_ZeroCopy(drv, data, len)){
-        /* DMA启动失败，归还信号量避免永久死锁 */
         xSemaphoreGive(drv->tx_sem);
         #if DEBUG
         UART1_Printf("Modbus_Send: UART_Data_TX_ZeroCopy failed\n");
@@ -258,7 +257,6 @@ static void Modbus_OTAInfo_Updata(void){
         modbus_tx_buf[3] = crc & 0xFF;
         modbus_tx_buf[4] = (crc >> 8);
         if(Modbus_Send(&uart2, modbus_tx_buf, 5)){
-            /* 等待DMA完成发送，再等USART移位寄存器清空后复位 */
             xSemaphoreTake(uart2.tx_sem, pdMS_TO_TICKS(200));
             while(!(USART2->SR & USART_SR_TC));
         }
