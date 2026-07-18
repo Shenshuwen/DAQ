@@ -1,0 +1,37 @@
+# Keil MDK build artifacts
+*.uvguix.*
+*.scvd
+*.crf
+*.d
+*.o
+*.axf
+*.lst
+*.lnp
+*.dep
+*.iex
+*.htm
+*.sct.bak
+JLinkLog.txt
+JLinkSettings.ini
+*.uvoptx
+RTE/
+
+# Debug / Output
+DebugConfig/
+*.tra
+*.Administrator
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Archives
+*.rar
+*.zip
+
+# OS
+Thumbs.db
+Desktop.ini
