@@ -12,18 +12,67 @@ DAQ/
 └── README.md
 ```
 
-## 硬件平台
+## 技术架构
+
+### RTOS
+
+| 项目 | 配置 |
+|---|---|
+| 调度器 | FreeRTOS, 抢占式, tick 1 kHz, 最大优先级 5 |
+| 堆内存 | 10 KB (heap_4) |
+| 任务通知 | 启用 (ISR → Task 轻量通信, 替代信号量) |
+| 互斥量/计数信号量 | 启用 |
+| NVIC 优先级 | 内核 `0xF0`, 系统调用 `0x50` (优先级 5) |
+
+**任务划分：**
+
+| 任务 | 优先级 | 职责 |
+|---|---|---|
+| SensorTask | `max-1` | TIM2 UEV 中断通知 → SPI1 DMA 读 AD7606 → 双缓冲交换 |
+| CommTask | `max-2` | USART2 IDLE 中断等 Modbus 帧 → `0x04` 响应 / `0x41` OTA 请求 |
+| MonitorTask | `max-3` | 检测 Sensor/Comm 心跳 → 喂 IWDG → 错误记录 |
+
+**SysTick 防护：** 调度器启动前不调用 `xPortSysTickHandler`，避免访问未初始化内核数据。
+
+**双缓冲无锁读写 (SPSC)：** Cortex-M3 上 `uint16_t*` 对齐读是原子的。Writer (SensorTask) 写 inactive buffer，完成后原子交换 `active_buf` 指针；Reader (CommTask) 直接快照读取，无需互斥锁。
+
+### 硬件平台
 
 | 项目 | 规格 |
 |---|---|
-| MCU | STM32F103C8T6 (Cortex-M3, 64KB Flash, 20KB SRAM) |
-| 时钟 | HSE 8MHz → PLL ×9 → 72MHz |
+| MCU | STM32F103C8T6 (Cortex-M3, LQFP48, 64KB Flash, 20KB SRAM) |
+| 时钟 | HSE 8MHz → PLL ×9 → 72MHz, APB1 36MHz, APB2 72MHz |
+| ADC | AD7606 (8 通道同步采样) |
+| 触发 | TIM2 CH1 PWM → PA0 → AD7606 CONVST, 10kHz (100μs) |
+| 调试串口 | USART1 PA9/PA10, 115200 8N1 |
+| 数据/OTA 口 | USART2 PA2/PA3, 115200 8N1 |
+| 传感器接口 | SPI1 (全双工主模式, DMA Normal) |
+| 看门狗 | IWDG (硬件) + MonitorTask 软件心跳 |
 | IDE | Keil MDK-ARM 5.42 / ARMCC 5.06 |
 | CubeMX | STM32CubeMX 6.17 + FW_F1 V1.8.7 |
-| 调试串口 | USART1 PA9/PA10, 115200 8N1 |
-| 数据串口 | USART2 PA2/PA3, 115200 8N1 |
-| 传感器 | SPI1 外挂 ADC 模块 |
-| RTOS | FreeRTOS (APP 侧) |
+
+**UART 驱动：**
+
+| 串口 | 用途 | RX | TX |
+|---|---|---|---|
+| USART1 | 调试打印 | 暂不启用 | 环形缓冲 + DMA TC ISR |
+| USART2 | 通讯/OTA | 固定缓冲 (1024B) + 描述符队列 (8槽) + IDLE 中断 | 零拷贝单帧 + DMA TC ISR |
+
+自编驱动直接操作寄存器 (CPAR/CMAR/CNDTR)，HAL 的 `HAL_DMA_Init` 只写 CCR 不写 CPAR。
+
+**SPI 驱动：** SPI1 DMA Normal 模式，TX 发哑字触发 SCK 以采样 MISO。CNDTR 到 0 后硬件自动清 EN。
+
+**TIM2 驱动：** `MX_TIM2_Init` 不自动启用。需额外调用 `LL_TIM_EnableIT_UPDATE` (UEV 中断通知任务) 和 `LL_TIM_EnableCounter` (启动计数)。
+
+### 上位机
+
+| 项目 | 技术栈 |
+|---|---|
+| 主系统 | C# / WPF / .NET Framework 4.8 / MVVM |
+| 图表 | SciChart 6.x |
+| 通信 | TouchSocket TCP + System.IO.Ports.SerialPort |
+| Excel | ClosedXML / Spire.XLS |
+| 数学 | MathNet.Numerics |
 
 ## Flash 分区 (64KB)
 
@@ -140,18 +189,54 @@ APP 收到后写 OTAInfo、发送 ACK、等待 TC 后复位。
 
 成功时直接跳转, 通常无响应。
 
-## OTA 升级流程
+## OTA 升级
+
+### Flash 物理特性
+
+STM32F103C8T6 中容量产品：64 页 × 1KB。页擦除约 40ms，半字编程约 40μs。写入前目标区域必须已擦除 (全 `0xFF`)。编程以半字 (16-bit) 为单位。
+
+### 状态机
+
+```text
+IDLE → REQUEST → ERASING → DOWNLOADING → VERIFYING → READY
+  ↑                                                      │
+  └──────────── FAILED ←─────────────────────────────────┘
+```
+
+### Bootloader 启动决策 (`OTA_BootCheck`)
+
+| OTAInfo 状态 | APP 有效? | 动作 |
+|---|---|---|
+| magic ≠ `0xA5A5A5A5` | 是 | 直接 `AppJump` |
+| magic ≠ `0xA5A5A5A5` | 否 | 停留 Bootloader |
+| REQUEST / DOWNLOADING / FAILED | — | 停留 Bootloader 等升级 |
+| READY | 是 | 清 OTAInfo → `AppJump` |
+| 其他 | — | 标记 FAILED |
+
+### APP 有效性检查
+
+`OTA_AppIsValid()` 校验：
+1. 初始 SP 在 `0x20000000–0x20005000`
+2. Reset vector 不能是 `0xFFFFFFFF`
+3. Reset vector 最低位 = 1 (Thumb)
+4. Reset vector 地址在 `APP_ADDR–OTAINFO_ADDR` 区间
+
+### AppJump 操作顺序
+
+关全局中断 → 停 SysTick → 清 UART DMA 请求 → 停 DMA → `HAL_UART_DeInit` ×2 → `HAL_DeInit` → 清 NVIC → `SCB->VTOR = APP_ADDR` → `__set_MSP(app_sp)` → 跳转
+
+### 升级流程
 
 ```
 上位机 ──0x04──> APP (正常采集)
 上位机 ──0x41──> APP (请求升级)
-APP    返回 ACK, 写 OTAInfo, 复位
-Bootloader 启动, 读 OTAInfo, 停留升级模式
-上位机 ──START──> Bootloader (版本/大小/CRC32)
-上位机 ──DATA──>  Bootloader (240B 分包, 顺序写入)
-上位机 ──END───>  Bootloader (校验 CRC32 + 向量表)
-Bootloader 写入 READY, 复位
-Bootloader 重启, OTA_BootCheck → AppJump
+APP    返回 ACK, 写 OTAInfo REQUEST, 复位
+Bootloader 启动, OTA_BootCheck → REQUEST → 停留
+上位机 ──START──> Bootloader (version/size/CRC32)
+                  Bootloader: 校验 size, 写 OTAInfo → 擦 APP 区 → DOWNLOADING
+上位机 ──DATA──>  Bootloader (offset+240B 分包, 顺序写入, 不跳包)
+上位机 ──END───>  Bootloader (校验 CRC32 + 向量表 → READY → 复位)
+Bootloader 重启, OTA_BootCheck → READY + APP 有效 → AppJump
 APP 恢复运行
 上位机 ──0x04──> APP (验证采集)
 ```
