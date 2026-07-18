@@ -25,6 +25,13 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Backup / temp copies
+*_sct.Bak
+* copy.*
+
+# Python tools
+tools/
+
 # OS
 Thumbs.db
 Desktop.ini
